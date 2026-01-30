@@ -23,12 +23,14 @@ if [ "$EUID" -ne 0 ]; then
     exit 1
 fi
 
-# Krav: live-build + Debian keyring
-if ! command -v lb &>/dev/null; then
-    log "Installerar live-build..."
-    apt-get update
-    apt-get install -y live-build
-fi
+# Krav: live-build + syslinux-utils + Debian keyring
+for pkg in live-build syslinux-utils; do
+    if ! dpkg -s "$pkg" &>/dev/null; then
+        log "Installerar $pkg..."
+        apt-get update
+        apt-get install -y "$pkg"
+    fi
+done
 
 if [ ! -f /usr/share/keyrings/debian-archive-keyring.gpg ]; then
     log "Installerar debian-archive-keyring..."
@@ -62,6 +64,24 @@ lb config \
     --memtest none \
     --win32-loader false \
     --apt-indices false
+
+# ─── Fix isolinux bootloader (Debian Bookworm-kompatibla sökvägar) ────
+# live-build 3.x:s inbyggda template har symlänkar till /usr/lib/syslinux/
+# som inte stämmer i Bookworm. Skapar lokal template med korrekta sökvägar.
+# Paketet "isolinux" krävs i chroot (ger /usr/lib/ISOLINUX/isolinux.bin).
+log "Skapar lokal isolinux bootloader-template..."
+mkdir -p config/bootloaders/isolinux
+cp /usr/share/live/build/bootloaders/isolinux/*.cfg \
+   /usr/share/live/build/bootloaders/isolinux/*.in \
+   config/bootloaders/isolinux/ 2>/dev/null || true
+# Symlänkar med korrekta Bookworm-sökvägar (tolkas i chroot)
+ln -sf /usr/lib/ISOLINUX/isolinux.bin config/bootloaders/isolinux/isolinux.bin
+ln -sf /usr/lib/syslinux/modules/bios/vesamenu.c32 config/bootloaders/isolinux/vesamenu.c32
+# Skapa tom bootlogo (cpio-arkiv) — live-build 3.x:s lb_binary_syslinux rad 365
+# försöker ovillkorligt läsa binary/isolinux/bootlogo för gfxboot-repacking.
+# I Debian-mode skapas aldrig denna fil (bara i Ubuntu-mode). Utan den kraschar
+# scriptet med "cannot open binary/isolinux/bootlogo: No such file".
+(cd config/bootloaders/isolinux && echo -n | cpio --quiet -o > bootlogo)
 
 # ─── Manuell security-repo (live-build 3.x använder fel suite-namn) ───
 mkdir -p config/archives
@@ -141,13 +161,64 @@ systemctl enable docker
 HOOKEOF
 chmod +x config/hooks/normal/0100-func-setup.hook.chroot
 
-# ─── Bygg ISO ────────────────────────────────────────
+# ─── Bygg ISO (stegvis — kernel kopieras manuellt) ───────────────────
+# Med --linux-packages none hoppar live-build över lb_binary_linux-image,
+# som normalt kopierar vmlinuz/initrd till binary/live/. Syslinux-steget
+# i lb binary förväntar sig att filerna redan finns och kör
+# mv binary/live/vmlinuz-* ... som misslyckas.
+#
+# Binary-hooks körs EFTER syslinux-steget, så en hook kan inte lösa det.
+# Lösning: kör bootstrap+chroot separat, kopiera kernel manuellt, kör binary.
 log "Bygger ISO... (detta tar en stund)"
-lb build 2>&1 | tee "$BUILD_DIR/build.log"
 
-# Flytta ISO
-ISO_FILE=$(find "$BUILD_DIR" -maxdepth 1 -name "*.iso" -type f | head -1)
+log "Steg 1/3: bootstrap + chroot..."
+lb bootstrap 2>&1 | tee "$BUILD_DIR/build.log"
+lb chroot 2>&1 | tee -a "$BUILD_DIR/build.log"
+
+log "Steg 2/3: kopierar kernel och initrd till binary/live/..."
+mkdir -p binary/live
+cp chroot/boot/vmlinuz-* binary/live/
+cp chroot/boot/initrd.img-* binary/live/
+
+# ─── Fix rsvg: live-build 3.x anropar "rsvg" som inte finns i Bookworm ───
+# librsvg2-bin i Bookworm levererar "rsvg-convert" istället för "rsvg",
+# och syntaxen skiljer sig (rsvg-convert kräver -o för output).
+# Skapar ett wrapper-skript i chroot som översätter anropet.
+log "Skapar rsvg-wrapper i chroot (rsvg -> rsvg-convert)..."
+cat > chroot/usr/bin/rsvg << 'RSVGEOF'
+#!/bin/bash
+# Wrapper: rsvg -> rsvg-convert (Debian Bookworm-kompatibilitet)
+# Gammal syntax: rsvg [options] input.svg output.png
+# Ny syntax:     rsvg-convert [options] -o output.png input.svg
+args=()
+positional=()
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --format|--height|--width)
+            args+=("$1" "$2"); shift 2 ;;
+        -*)
+            args+=("$1"); shift ;;
+        *)
+            positional+=("$1"); shift ;;
+    esac
+done
+exec rsvg-convert "${args[@]}" -o "${positional[1]}" "${positional[0]}"
+RSVGEOF
+chmod +x chroot/usr/bin/rsvg
+
+log "Steg 3/3: binary (bootloader + ISO)..."
+lb binary 2>&1 | tee -a "$BUILD_DIR/build.log"
+
+# Flytta ISO -- live-build 3.x kan skapa filen i chroot/ vid stegvis bygge
+ISO_FILE=$(find "$BUILD_DIR" -name "*.hybrid.iso" -o -name "*.iso" | head -1)
 if [ -n "$ISO_FILE" ]; then
+    # Kör isohybrid om det inte redan körts (gör ISO USB-bootbar)
+    if command -v isohybrid &>/dev/null; then
+        if ! file "$ISO_FILE" | grep -q "MBR boot"; then
+            log "Kör isohybrid för USB-boot-stöd..."
+            isohybrid "$ISO_FILE" 2>/dev/null || warn "isohybrid misslyckades (ISO funkar ändå som CD)"
+        fi
+    fi
     FINAL_NAME="func-linux-$(date +%Y%m%d).iso"
     mv "$ISO_FILE" "$PROJECT_DIR/$FINAL_NAME"
     log "=== ISO klar: $PROJECT_DIR/$FINAL_NAME ==="

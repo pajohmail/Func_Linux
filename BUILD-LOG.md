@@ -138,3 +138,326 @@ E: Unable to locate package openvas
 - openvas
 + # openvas (GVM) -- kraver extern repo, installeras manuellt
 ```
+
+## 2026-01-30: Fix isolinux.bin och vesamenu.c32 saknas vid ISO-bygge
+
+**Problem:** Byggets binär-steg (`lb_binary_syslinux`) misslyckas med:
+
+```
+cp: cannot stat '/root/isolinux/isolinux.bin': No such file or directory
+cp: cannot stat '/root/isolinux/vesamenu.c32': No such file or directory
+```
+
+Ingen bootbar ISO skapas.
+
+**Orsak:** live-build 3.x:s inbyggda bootloader-template
+(`/usr/share/live/build/bootloaders/isolinux/`) innehåller symlänkar till
+gamla sökvägar som inte stämmer i Debian Bookworm:
+
+- `isolinux.bin -> /usr/lib/syslinux/isolinux.bin` — filen finns inte;
+  i Bookworm levereras den av paketet `isolinux` på
+  `/usr/lib/ISOLINUX/isolinux.bin`.
+- `vesamenu.c32 -> /usr/lib/syslinux/vesamenu.c32` — filen har flyttat till
+  `/usr/lib/syslinux/modules/bios/vesamenu.c32` i `syslinux-common`.
+
+live-build kopierar template-katalogen in i chroot och kör `cp -aL` för att
+resolva symlänkarna. Eftersom målfilerna inte finns misslyckas kopieringen.
+
+**Åtgärd:**
+
+1. Skapar en lokal bootloader-template i `config/bootloaders/isolinux/`
+   (via `build-iso.sh`) med korrekta symlänkar som pekar på Bookworm-sökvägar.
+   live-build prioriterar lokala templates före systemets.
+2. La till paketet `isolinux` i `packages/core.list` så att
+   `/usr/lib/ISOLINUX/isolinux.bin` finns tillgänglig i chroot.
+
+```diff
+ # scripts/build-iso.sh (efter lb config)
++# ─── Fix isolinux bootloader (Debian Bookworm-kompatibla sökvägar) ────
++log "Skapar lokal isolinux bootloader-template..."
++mkdir -p config/bootloaders/isolinux
++cp /usr/share/live/build/bootloaders/isolinux/*.cfg \
++   /usr/share/live/build/bootloaders/isolinux/*.in \
++   config/bootloaders/isolinux/ 2>/dev/null || true
++ln -sf /usr/lib/ISOLINUX/isolinux.bin config/bootloaders/isolinux/isolinux.bin
++ln -sf /usr/lib/syslinux/modules/bios/vesamenu.c32 config/bootloaders/isolinux/vesamenu.c32
+```
+
+```diff
+ # packages/core.list
+  linux-image-amd64
+  linux-headers-amd64
+  systemd
++ isolinux
+```
+
+## 2026-01-30: Fix vmlinuz saknas i binary/live/ — kernel kopieras inte vid `--linux-packages none`
+
+**Problem:** Byggets binär-steg misslyckas med:
+
+```
+mv: kan inte ta status på 'binary/live/vmlinuz-*': Filen eller katalogen finns inte
+```
+
+Ingen bootbar ISO skapas. Felet uppstår under `lb_binary_syslinux`.
+
+**Orsak:** Med `--linux-packages none` hoppar live-build över hela
+`lb_binary_linux-image`-steget, som normalt kopierar kernel (`vmlinuz-*`) och
+initrd (`initrd.img-*`) från `chroot/boot/` till `binary/live/`. Kernel
+installeras korrekt i chroot via `linux-image-amd64` i paketlistan, men
+syslinux-steget hittar inga filer i `binary/live/` eftersom kopieringssteget
+aldrig körs.
+
+**Åtgärd:**
+
+1. La till en binary-hook (`config/hooks/normal/0050-copy-kernel.hook.binary`)
+   i `scripts/build-iso.sh` som manuellt kopierar `vmlinuz-*` och
+   `initrd.img-*` från `chroot/boot/` till `binary/live/`. Hooken körs före
+   syslinux-steget och ersätter den logik som `lb_binary_linux-image` normalt
+   utför.
+2. La till paketet `live-boot` i `packages/core.list`. Det paketet krävs för
+   att initrd ska innehålla live-boot-skripten som `boot=live`-parametern i
+   bootloadern refererar till.
+
+```diff
+ # scripts/build-iso.sh (ny hook efter chroot-hook)
++cat > config/hooks/normal/0050-copy-kernel.hook.binary << 'HOOKEOF'
++#!/bin/bash
++set -e
++mkdir -p binary/live
++cp chroot/boot/vmlinuz-* binary/live/vmlinuz
++cp chroot/boot/initrd.img-* binary/live/initrd.img
++HOOKEOF
++chmod +x config/hooks/normal/0050-copy-kernel.hook.binary
+```
+
+```diff
+ # packages/core.list
+  linux-image-amd64
+  linux-headers-amd64
++ live-boot
+  systemd
+```
+
+## 2026-01-30: Fix vmlinuz-felet — binary hook körs för sent, byt till stegvis bygge
+
+**Problem:** Trots binary-hooken `0050-copy-kernel.hook.binary` misslyckas bygget
+fortfarande med:
+
+```
+mv: kan inte ta status på 'binary/live/vmlinuz-*': Filen eller katalogen finns inte
+```
+
+**Orsak:** I live-build 3.x körs binary-hooks (`lb_binary_hooks`) **efter**
+syslinux-steget (`lb_binary_syslinux`). Syslinux-steget försöker flytta
+`binary/live/vmlinuz-*` men filerna finns inte ännu — hooken som skulle
+kopiera dem har inte körts.
+
+Exekveringsordning i `lb binary`:
+1. `lb_binary_rootfs` (squashfs)
+2. `lb_binary_linux-image` — **hoppas över** pga `--linux-packages none`
+3. `lb_binary_syslinux` — **misslyckas** (vmlinuz saknas)
+4. `lb_binary_hooks` — hooken körs, men det är för sent
+
+**Åtgärd:**
+
+1. Tog bort binary-hooken `0050-copy-kernel.hook.binary` (den hinner aldrig
+   köra före syslinux).
+2. Ersatte `lb build` med stegvis exekvering:
+   - `lb bootstrap` + `lb chroot` — bygger chroot med alla paket inkl. kernel
+   - Manuell kopiering av `vmlinuz-*` och `initrd.img-*` från `chroot/boot/`
+     till `binary/live/` — filerna behåller originalnamnet med versionssuffix
+     så att live-builds `mv`-glob matchar
+   - `lb binary` — skapar bootloader och ISO, hittar nu kernelfilerna
+
+```diff
+ # scripts/build-iso.sh
+-cat > config/hooks/normal/0050-copy-kernel.hook.binary << 'HOOKEOF'
+-#!/bin/bash
+-set -e
+-mkdir -p binary/live
+-cp chroot/boot/vmlinuz-* binary/live/vmlinuz
+-cp chroot/boot/initrd.img-* binary/live/initrd.img
+-HOOKEOF
+-chmod +x config/hooks/normal/0050-copy-kernel.hook.binary
+-
+-lb build 2>&1 | tee "$BUILD_DIR/build.log"
++lb bootstrap 2>&1 | tee "$BUILD_DIR/build.log"
++lb chroot 2>&1 | tee -a "$BUILD_DIR/build.log"
++
++mkdir -p binary/live
++cp chroot/boot/vmlinuz-* binary/live/
++cp chroot/boot/initrd.img-* binary/live/
++
++lb binary 2>&1 | tee -a "$BUILD_DIR/build.log"
+```
+
+## 2026-01-30: Fix `rsvg` saknas — splash-generering misslyckas i syslinux-steget
+
+**Problem:** `lb_binary_syslinux` misslyckas med:
+
+```
+/usr/bin/env: 'rsvg': No such file or directory
+```
+
+Ingen ISO skapas. Felet uppstår när live-build försöker generera syslinux
+splash-bilden genom att köra `rsvg --format png --height 480 --width 640
+splash.svg splash.png` inuti chroot.
+
+**Orsak:** I Debian Bookworm har paketet `librsvg2-bin` ersatt det gamla
+`rsvg`-kommandot med `rsvg-convert`. Dessutom skiljer sig syntaxen:
+
+- **Gammal:** `rsvg [options] input.svg output.png` (positionsargument)
+- **Ny:** `rsvg-convert [options] -o output.png input.svg` (kräver `-o`)
+
+live-build 3.x:s `lb_binary_syslinux` (rad 337) anropar det gamla `rsvg`
+som inte längre finns.
+
+**Åtgärd:**
+
+Skapar ett wrapper-skript `chroot/usr/bin/rsvg` i det stegvisa bygget
+(mellan `lb chroot` och `lb binary`) som översätter det gamla `rsvg`-syntaxen
+till `rsvg-convert`-anrop.
+
+```diff
+ # scripts/build-iso.sh (efter kernel-kopiering, före lb binary)
++log "Skapar rsvg-wrapper i chroot (rsvg -> rsvg-convert)..."
++cat > chroot/usr/bin/rsvg << 'RSVGEOF'
++#!/bin/bash
++# Wrapper: rsvg -> rsvg-convert (Debian Bookworm-kompatibilitet)
++args=()
++positional=()
++while [ $# -gt 0 ]; do
++    case "$1" in
++        --format|--height|--width)
++            args+=("$1" "$2"); shift 2 ;;
++        -*)
++            args+=("$1"); shift ;;
++        *)
++            positional+=("$1"); shift ;;
++    esac
++done
++exec rsvg-convert "${args[@]}" -o "${positional[1]}" "${positional[0]}"
++RSVGEOF
++chmod +x chroot/usr/bin/rsvg
+```
+
+## 2026-01-30: Fix `bootlogo: No such file` — live-build 3.x kräver gfxboot-arkiv även i Debian-mode
+
+**Problem:** `lb_binary_syslinux` avbryter med:
+
+```
+/usr/lib/live/build/lb_binary_syslinux: 365: cannot open binary/isolinux/bootlogo: No such file
+```
+
+Ingen ISO skapas.
+
+**Orsak:** I `/usr/lib/live/build/lb_binary_syslinux` rad 365 körs:
+
+```bash
+(cd "$tmpdir" && cpio -i) < ${_TARGET}/bootlogo
+```
+
+Detta försöker ovillkorligt extrahera ett gfxboot `bootlogo`-cpio-arkiv från
+`binary/isolinux/bootlogo`. Filen skapas bara i Ubuntu-mode (via
+`gfxboot-theme-ubuntu`), men i Debian-mode (`--mode debian`) extraheras den
+aldrig. Scriptet kontrollerar inte om filen finns innan det försöker läsa den
+— en bugg i live-build 3.x.
+
+**Åtgärd:**
+
+Skapar ett tomt cpio-arkiv som `bootlogo` i den lokala isolinux-templaten
+(`config/bootloaders/isolinux/`). Detta gör att rad 365 lyckas (extraherar
+noll filer), och rad 376 packar om ett nytt arkiv med de `.cfg`-filer som
+finns — precis som live-build förväntar sig.
+
+```diff
+ # scripts/build-iso.sh (i isolinux bootloader-template-sektionen)
+  ln -sf /usr/lib/ISOLINUX/isolinux.bin config/bootloaders/isolinux/isolinux.bin
+  ln -sf /usr/lib/syslinux/modules/bios/vesamenu.c32 config/bootloaders/isolinux/vesamenu.c32
++ # Skapa tom bootlogo (cpio-arkiv) — live-build 3.x:s lb_binary_syslinux rad 365
++ # försöker ovillkorligt läsa binary/isolinux/bootlogo för gfxboot-repacking.
++ (cd config/bootloaders/isolinux && echo -n | cpio --quiet -o > bootlogo)
+```
+
+## 2026-01-30: Fix `isohybrid: not found` — ISO skapas men är ej USB-bootbar
+
+**Problem:** ISO-bygget slutförs (3171 MB), men under `lb_binary_syslinux`
+loggas:
+
+```
+binary.sh: 5: isohybrid: not found
+```
+
+ISO:n startar bara från CD/DVD, inte USB.
+
+**Orsak:** `isohybrid` levereras av paketet `syslinux-utils` som körs på
+**värd-systemet** (inte i chroot). Paketet var inte installerat. live-build 3.x
+anropar `isohybrid` i `lb_binary_iso` för att göra ISO:n hybrid-bootbar
+(MBR + El Torito).
+
+**Åtgärd:**
+
+Lade till `syslinux-utils` i prerequisite-installationen i `scripts/build-iso.sh`
+(bredvid `live-build`). Skriptet kontrollerar nu att båda paketen finns och
+installerar dem vid behov.
+
+```diff
+ # scripts/build-iso.sh
+-# Krav: live-build + Debian keyring
+-if ! command -v lb &>/dev/null; then
+-    log "Installerar live-build..."
+-    apt-get update
+-    apt-get install -y live-build
+-fi
++# Krav: live-build + syslinux-utils + Debian keyring
++for pkg in live-build syslinux-utils; do
++    if ! dpkg -s "$pkg" &>/dev/null; then
++        log "Installerar $pkg..."
++        apt-get update
++        apt-get install -y "$pkg"
++    fi
++done
+```
+
+## 2026-01-30: Fix `isohybrid` i chroot + ISO-sökväg fel vid stegvis bygge
+
+**Problem:** Trots att `syslinux-utils` installeras på värd-systemet loggas
+fortfarande `binary.sh: 5: isohybrid: not found` under bygget. Dessutom hamnar
+ISO-filen i `build/chroot/binary.hybrid.iso` istället för direkt i `build/`,
+och skriptets `find -maxdepth 1` hittar den inte.
+
+**Orsak:**
+1. **isohybrid i chroot:** live-build 3.x:s `lb_binary_iso` kör `isohybrid`
+   inuti chroot-miljön via `binary.sh`. Paketet `syslinux-utils` fanns bara på
+   värden, inte i chroot.
+2. **ISO-sökväg:** Vid stegvis bygge (`lb bootstrap` + `lb chroot` + `lb binary`)
+   skapar live-build ISO:n i `chroot/` istället för i `$BUILD_DIR` direkt.
+   Skriptets `find -maxdepth 1` missade filen.
+
+**Åtgärd:**
+1. Lade till `syslinux-utils` i `packages/core.list` så att `isohybrid` finns
+   tillgänglig inuti chroot under `lb binary`.
+2. Ändrade ISO-sökningen i `build-iso.sh` till rekursiv `find` (utan maxdepth)
+   som söker efter `*.hybrid.iso` och `*.iso`.
+3. La till en fallback-isohybrid på värd-sidan: om ISO:n saknar MBR-boot körs
+   `isohybrid` manuellt efter att filen hittats.
+
+```diff
+ # packages/core.list
+  isolinux
++ syslinux-utils
+```
+
+```diff
+ # scripts/build-iso.sh
+-ISO_FILE=$(find "$BUILD_DIR" -maxdepth 1 -name "*.iso" -type f | head -1)
++ISO_FILE=$(find "$BUILD_DIR" -name "*.hybrid.iso" -o -name "*.iso" | head -1)
+ if [ -n "$ISO_FILE" ]; then
++    if command -v isohybrid &>/dev/null; then
++        if ! file "$ISO_FILE" | grep -q "MBR boot"; then
++            isohybrid "$ISO_FILE" 2>/dev/null || true
++        fi
++    fi
+     FINAL_NAME="func-linux-$(date +%Y%m%d).iso"
+```

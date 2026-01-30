@@ -4,7 +4,10 @@
 # System
 linux-image-amd64
 linux-headers-amd64
+live-boot
 systemd
+isolinux
+syslinux-utils
 systemd-sysv
 dbus
 udev

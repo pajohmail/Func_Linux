@@ -41,6 +41,34 @@ sudo ./scripts/build-iso.sh
 
 Producerar `func-linux-YYYYMMDD.iso` i projektroten.
 
+### Kör ISO
+
+**Virtuell maskin (QEMU):**
+
+```bash
+qemu-system-x86_64 -cdrom func-linux-YYYYMMDD.iso -m 4G -smp 2 -boot d -enable-kvm
+```
+
+> Flaggan `-enable-kvm` kräver KVM-stöd (`kvm-ok`). Utan den körs VM:en i emulering (långsammare).
+
+**VirtualBox:**
+
+1. Skapa en ny VM (Debian 64-bit, minst 2 GB RAM, 20 GB disk)
+2. Under *Storage*, lägg till ISO:n som optisk skiva
+3. Starta VM:en — systemet bootar till live-miljö
+
+**USB-sticka:**
+
+```bash
+sudo dd if=func-linux-YYYYMMDD.iso of=/dev/sdX bs=4M status=progress oflag=sync
+```
+
+> **Varning:** `dd` skriver över allt på enheten. Kontrollera rätt enhet med `lsblk` före körning.
+
+ISO:n är hybrid (BIOS + UEFI) och bootar direkt från USB. Använd **Calamares** i live-miljön för permanent installation.
+
+---
+
 ### Installera direkt pa system
 
 ```bash
