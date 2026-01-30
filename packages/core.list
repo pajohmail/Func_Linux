@@ -3,6 +3,7 @@
 
 # System
 linux-image-amd64
+linux-headers-amd64
 systemd
 systemd-sysv
 dbus
@@ -13,7 +14,7 @@ console-setup
 keyboard-configuration
 
 # Natverk
-networkmanager
+network-manager
 network-manager-gnome
 iproute2
 iputils-ping

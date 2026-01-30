@@ -5,7 +5,7 @@
 nmap
 masscan
 netdiscover
-enum4linux
+# enum4linux -- ej i Debian repos, installeras manuellt
 
 # Paketanalys
 wireshark
@@ -20,10 +20,10 @@ ffuf
 dirb
 sqlmap
 whatweb
-wpscan
+# wpscan -- ej i Debian repos, installeras via gem
 
 # Exploitation (metasploit installeras via eget skript)
-exploitdb
+# exploitdb -- ej i Debian repos, installeras manuellt
 
 # Losenord
 john
@@ -31,13 +31,13 @@ hashcat
 hydra
 medusa
 crunch
-wordlists
+# wordlists -- ej i Debian repos (Kali meta-paket), installeras manuellt
 
 # Wireless
 aircrack-ng
 reaver
 bully
-kismet
+# kismet -- ej i Debian bookworm, installeras manuellt
 wifite
 
 # Natverk
@@ -66,10 +66,10 @@ dsniff
 mitmproxy
 bettercap
 netsniff-ng
-responder
+# responder -- ej i Debian repos, installeras manuellt
 
 # Reverse engineering
-radare2
+# radare2 -- ej i Debian bookworm, installeras manuellt
 binwalk
 foremost
 # ghidra -- installeras manuellt (ej i Debian repos)
@@ -88,7 +88,7 @@ stunnel4
 
 # Post-Exploitation
 python3-impacket
-neo4j
+# neo4j -- kraver extern repo, installeras manuellt
 # crackmapexec, bloodhound, evil-winrm -- installeras via pip/manuellt
 
 # Fuzzing
@@ -103,4 +103,4 @@ torsocks
 i2pd
 
 # Vulnerability scanning
-openvas
+# openvas (GVM) -- kraver extern repo, installeras manuellt

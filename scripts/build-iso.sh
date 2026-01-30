@@ -23,11 +23,16 @@ if [ "$EUID" -ne 0 ]; then
     exit 1
 fi
 
-# Krav: live-build
+# Krav: live-build + Debian keyring
 if ! command -v lb &>/dev/null; then
     log "Installerar live-build..."
     apt-get update
     apt-get install -y live-build
+fi
+
+if [ ! -f /usr/share/keyrings/debian-archive-keyring.gpg ]; then
+    log "Installerar debian-archive-keyring..."
+    apt-get install -y debian-archive-keyring
 fi
 
 # Rensa tidigare bygg
@@ -42,14 +47,28 @@ cd "$BUILD_DIR"
 # ─── Konfigurera live-build ──────────────────────────
 log "Konfigurerar live-build..."
 lb config \
+    --mode debian \
     --distribution bookworm \
+    --mirror-bootstrap http://deb.debian.org/debian \
+    --mirror-chroot http://deb.debian.org/debian \
+    --mirror-binary http://deb.debian.org/debian \
+    --security false \
     --archive-areas "main contrib non-free non-free-firmware" \
+    --linux-packages none \
     --bootappend-live "boot=live components hostname=func username=func" \
     --iso-application "Func Linux" \
     --iso-publisher "Func Linux Project" \
     --iso-volume "FUNC_LINUX" \
     --memtest none \
-    --win32-loader false
+    --win32-loader false \
+    --apt-indices false
+
+# ─── Manuell security-repo (live-build 3.x använder fel suite-namn) ───
+mkdir -p config/archives
+echo "deb http://deb.debian.org/debian-security bookworm-security main contrib non-free non-free-firmware" \
+    > config/archives/security.list.chroot
+echo "deb http://deb.debian.org/debian-security bookworm-security main contrib non-free non-free-firmware" \
+    > config/archives/security.list.binary
 
 # ─── Kopiera paketlistor ─────────────────────────────
 log "Kopierar paketlistor..."
