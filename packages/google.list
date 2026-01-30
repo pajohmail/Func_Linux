@@ -1,0 +1,10 @@
+# Func Linux -- Google-integration
+# De flesta Google-verktyg installeras via skript, inte apt
+
+# rclone for Google Drive mount
+rclone
+
+# Weblasare for Google-appar (Docs, Calendar, Gmail)
+chromium
+
+# Beroenden (fuse3 finns redan i core.list)

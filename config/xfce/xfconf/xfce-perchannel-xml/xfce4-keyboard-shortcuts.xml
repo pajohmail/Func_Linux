@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<channel name="xfce4-keyboard-shortcuts" version="1.0">
+  <property name="commands" type="empty">
+    <property name="custom" type="empty">
+      <!-- Terminal -->
+      <property name="&lt;Super&gt;Return" type="string" value="xfce4-terminal"/>
+      <property name="&lt;Super&gt;t" type="string" value="xfce4-terminal"/>
+      <!-- Filhanterare -->
+      <property name="&lt;Super&gt;e" type="string" value="thunar"/>
+      <!-- Webblasare -->
+      <property name="&lt;Super&gt;w" type="string" value="chromium"/>
+      <!-- Appfinnare -->
+      <property name="&lt;Super&gt;d" type="string" value="xfce4-appfinder"/>
+      <!-- Skarmlas -->
+      <property name="&lt;Super&gt;l" type="string" value="xflock4"/>
+      <!-- Screenshot -->
+      <property name="Print" type="string" value="xfce4-screenshooter"/>
+      <property name="&lt;Shift&gt;Print" type="string" value="xfce4-screenshooter -r"/>
+    </property>
+  </property>
+  <property name="xfwm4" type="empty">
+    <property name="custom" type="empty">
+      <!-- Fonsterhantering -->
+      <property name="&lt;Super&gt;Up" type="string" value="maximize_window_key"/>
+      <property name="&lt;Super&gt;Down" type="string" value="hide_window_key"/>
+      <property name="&lt;Super&gt;Left" type="string" value="tile_left_key"/>
+      <property name="&lt;Super&gt;Right" type="string" value="tile_right_key"/>
+      <property name="&lt;Alt&gt;F4" type="string" value="close_window_key"/>
+      <property name="&lt;Alt&gt;Tab" type="string" value="cycle_windows_key"/>
+      <!-- Arbetsytor -->
+      <property name="&lt;Super&gt;1" type="string" value="workspace_1_key"/>
+      <property name="&lt;Super&gt;2" type="string" value="workspace_2_key"/>
+      <property name="&lt;Super&gt;3" type="string" value="workspace_3_key"/>
+      <property name="&lt;Super&gt;4" type="string" value="workspace_4_key"/>
+    </property>
+  </property>
+</channel>

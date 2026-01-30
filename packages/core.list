@@ -1,0 +1,89 @@
+# Func Linux -- Baspaket
+# Karnpaket for ett fungerande CLI-system
+
+# System
+linux-image-amd64
+systemd
+systemd-sysv
+dbus
+udev
+sudo
+locales
+console-setup
+keyboard-configuration
+
+# Natverk
+networkmanager
+network-manager-gnome
+iproute2
+iputils-ping
+dnsutils
+wireless-tools
+wpasupplicant
+
+# Filsystem
+e2fsprogs
+btrfs-progs
+dosfstools
+ntfs-3g
+fuse3
+
+# Grundverktyg
+bash
+bash-completion
+coreutils
+findutils
+grep
+sed
+gawk
+less
+file
+man-db
+info
+htop
+btop
+tree
+unzip
+zip
+p7zip-full
+rsync
+
+# Texteditor
+vim
+nano
+
+# Terminal multiplexer
+tmux
+screen
+
+# Ljud
+pulseaudio
+alsa-utils
+
+# Firmware
+firmware-linux
+firmware-linux-nonfree
+firmware-misc-nonfree
+
+# Installer
+calamares
+calamares-settings-debian
+
+# GPU-drivrutiner (bred kompatibilitet)
+xserver-xorg-video-all
+xserver-xorg-video-intel
+xserver-xorg-video-amdgpu
+xserver-xorg-video-nouveau
+xserver-xorg-video-vesa
+xserver-xorg-video-fbdev
+xserver-xorg-input-all
+mesa-utils
+
+# XFCE
+xfce4
+xfce4-terminal
+xfce4-screenshooter
+xfce4-taskmanager
+thunar
+xorg
+xinit

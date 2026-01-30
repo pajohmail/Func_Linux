@@ -1,0 +1,106 @@
+# Func Linux -- Natverk & Sakerhetsverktyg (Kali-inspirerat)
+# OBS: Verktyg markerade med [PIP] eller [MANUELL] installeras via scripts/install.sh
+
+# Scanning & Enumeration
+nmap
+masscan
+netdiscover
+enum4linux
+
+# Paketanalys
+wireshark
+tshark
+tcpdump
+ettercap-text-only
+
+# Web
+nikto
+gobuster
+ffuf
+dirb
+sqlmap
+whatweb
+wpscan
+
+# Exploitation (metasploit installeras via eget skript)
+exploitdb
+
+# Losenord
+john
+hashcat
+hydra
+medusa
+crunch
+wordlists
+
+# Wireless
+aircrack-ng
+reaver
+bully
+kismet
+wifite
+
+# Natverk
+netcat-openbsd
+socat
+ncat
+proxychains4
+sshuttle
+sshpass
+openvpn
+wireguard-tools
+
+# HTTP-verktyg
+curl
+wget
+httpie
+
+# DNS
+dnsenum
+dnsrecon
+fierce
+
+# MITM / Sniffing
+arpwatch
+dsniff
+mitmproxy
+bettercap
+netsniff-ng
+responder
+
+# Reverse engineering
+radare2
+binwalk
+foremost
+# ghidra -- installeras manuellt (ej i Debian repos)
+
+# Forensik
+autopsy
+sleuthkit
+dc3dd
+testdisk
+scalpel
+libimage-exiftool-perl
+
+# Pivoting & Tunneling
+stunnel4
+# chisel -- installeras manuellt (ej i Debian repos)
+
+# Post-Exploitation
+python3-impacket
+neo4j
+# crackmapexec, bloodhound, evil-winrm -- installeras via pip/manuellt
+
+# Fuzzing
+afl++
+
+# Container & Cloud
+awscli
+
+# VPN & Anonymitet
+tor
+torsocks
+i2pd
+
+# Vulnerability scanning
+openvas

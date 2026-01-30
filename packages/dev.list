@@ -1,0 +1,49 @@
+# Func Linux -- Utvecklingsverktyg
+
+# Git & GitHub
+git
+git-lfs
+gh
+
+# Python
+python3
+python3-pip
+python3-venv
+python3-dev
+ipython3
+
+# Node.js (installeras via NodeSource repo)
+# nodejs
+# npm
+
+# C/C++
+gcc
+g++
+make
+cmake
+gdb
+valgrind
+
+# Bygg
+build-essential
+pkg-config
+autoconf
+automake
+libtool
+
+# Containrar
+docker.io
+docker-compose
+
+# Databaser (klienter)
+sqlite3
+postgresql-client
+mariadb-client
+
+# Ovrigt
+jq
+yq
+shellcheck
+strace
+ltrace
+hexedit

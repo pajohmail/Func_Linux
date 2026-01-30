@@ -1,0 +1,28 @@
+---
+componentName: func
+
+strings:
+    productName:         "Func Linux"
+    shortProductName:    "Func"
+    version:             "1.0"
+    shortVersion:        "1.0"
+    versionedName:       "Func Linux 1.0"
+    shortVersionedName:  "Func 1.0"
+    bootloaderEntryName: "Func Linux"
+    productUrl:          "https://github.com/func-linux"
+    supportUrl:          "https://github.com/func-linux/issues"
+    knownIssuesUrl:      "https://github.com/func-linux/issues"
+    releaseNotesUrl:     "https://github.com/func-linux/releases"
+
+images:
+    productLogo:         "logo.png"
+    productIcon:         "logo.png"
+    productWelcome:      "welcome.png"
+
+slideshow:               "show.qml"
+
+style:
+    sidebarBackground:   "#1b2b34"
+    sidebarText:         "#c0c5ce"
+    sidebarTextSelect:   "#ffffff"
+    sidebarTextHighlight: "#5fb3b3"

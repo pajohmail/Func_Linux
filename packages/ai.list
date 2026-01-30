@@ -1,0 +1,21 @@
+# Func Linux -- AI/ML-verktyg
+# OBS: Manga AI-paket installeras via pip, inte apt
+
+# Python AI-beroenden (apt)
+python3-numpy
+python3-scipy
+python3-pandas
+python3-matplotlib
+python3-sklearn
+
+# Pip-paket installeras av install.sh:
+# - torch / pytorch
+# - transformers
+# - langchain
+# - openai
+# - anthropic
+# - jupyter
+# - notebook
+
+# Ollama installeras via eget skript (curl)
+# Gemini CLI installeras via npm (npm install -g @google/gemini-cli)
