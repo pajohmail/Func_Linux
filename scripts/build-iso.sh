@@ -37,9 +37,13 @@ if [ ! -f /usr/share/keyrings/debian-archive-keyring.gpg ]; then
     apt-get install -y debian-archive-keyring
 fi
 
-# Rensa tidigare bygg
+# Rensa tidigare bygg (spara befintliga ISO:r)
 if [ -d "$BUILD_DIR" ]; then
     log "Rensar tidigare bygg..."
+    # Flytta undan eventuella ISO:r innan rensning
+    for iso in "$BUILD_DIR"/*.iso "$BUILD_DIR"/**/*.iso; do
+        [ -f "$iso" ] && mv "$iso" "$PROJECT_DIR/" && log "Sparade befintlig ISO: $PROJECT_DIR/$(basename "$iso")"
+    done
     rm -rf "$BUILD_DIR"
 fi
 
@@ -77,6 +81,9 @@ cp /usr/share/live/build/bootloaders/isolinux/*.cfg \
 # Symlänkar med korrekta Bookworm-sökvägar (tolkas i chroot)
 ln -sf /usr/lib/ISOLINUX/isolinux.bin config/bootloaders/isolinux/isolinux.bin
 ln -sf /usr/lib/syslinux/modules/bios/vesamenu.c32 config/bootloaders/isolinux/vesamenu.c32
+ln -sf /usr/lib/syslinux/modules/bios/ldlinux.c32 config/bootloaders/isolinux/ldlinux.c32
+ln -sf /usr/lib/syslinux/modules/bios/libcom32.c32 config/bootloaders/isolinux/libcom32.c32
+ln -sf /usr/lib/syslinux/modules/bios/libutil.c32 config/bootloaders/isolinux/libutil.c32
 # Skapa tom bootlogo (cpio-arkiv) — live-build 3.x:s lb_binary_syslinux rad 365
 # försöker ovillkorligt läsa binary/isolinux/bootlogo för gfxboot-repacking.
 # I Debian-mode skapas aldrig denna fil (bara i Ubuntu-mode). Utan den kraschar

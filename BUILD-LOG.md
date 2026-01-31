@@ -420,6 +420,59 @@ installerar dem vid behov.
 +done
 ```
 
+## 2026-01-31: Fix `Failed to load ldlinux.c32` vid ISO-boot
+
+**Problem:** ISO:n bootar inte — syslinux visar:
+
+```
+Failed to load ldlinux.c32
+```
+
+**Orsak:** Sedan syslinux 5+ kräver alla `.c32`-moduler att `ldlinux.c32`
+finns i samma katalog som `isolinux.bin`. Dessutom kräver `vesamenu.c32`
+biblioteksmodulerna `libcom32.c32` och `libutil.c32`. Den lokala
+bootloader-templaten symlänkade bara `vesamenu.c32` men inte dessa tre
+obligatoriska beroenden.
+
+**Åtgärd:**
+
+Lade till symlänkar för `ldlinux.c32`, `libcom32.c32` och `libutil.c32`
+i bootloader-template-sektionen i `scripts/build-iso.sh`.
+
+```diff
+ # scripts/build-iso.sh
+  ln -sf /usr/lib/syslinux/modules/bios/vesamenu.c32 config/bootloaders/isolinux/vesamenu.c32
++ ln -sf /usr/lib/syslinux/modules/bios/ldlinux.c32 config/bootloaders/isolinux/ldlinux.c32
++ ln -sf /usr/lib/syslinux/modules/bios/libcom32.c32 config/bootloaders/isolinux/libcom32.c32
++ ln -sf /usr/lib/syslinux/modules/bios/libutil.c32 config/bootloaders/isolinux/libutil.c32
+```
+
+## 2026-01-31: Fix `Couldn't download package libtirpc3` — cachad paketlista inaktuell
+
+**Problem:** Bygget avbryts under bootstrap med:
+
+```
+W: Couldn't download package libtirpc3 (ver 1.3.3+ds-1 arch amd64)
+E: Couldn't download packages: libtirpc3
+```
+
+**Orsak:** Debian Bookworm har fått en point release och den cachade
+paketversionen (`1.3.3+ds-1`) har ersatts med en nyare version på
+mirror-servern. `debootstrap`/`lb` försöker ladda ner den gamla versionen
+som inte längre finns.
+
+**Åtgärd:**
+
+Rensa cachade paketlistor och bygg om:
+
+```bash
+sudo lb clean
+sudo lb clean --purge
+sudo ./scripts/build-iso.sh
+```
+
+`--purge` rensar cachade index så att aktuella paketversioner hämtas.
+
 ## 2026-01-30: Fix `isohybrid` i chroot + ISO-sökväg fel vid stegvis bygge
 
 **Problem:** Trots att `syslinux-utils` installeras på värd-systemet loggas
