@@ -5,6 +5,8 @@
 linux-image-amd64
 linux-headers-amd64
 live-boot
+live-config
+live-config-systemd
 systemd
 isolinux
 syslinux-utils
@@ -81,6 +83,7 @@ xserver-xorg-video-nouveau
 xserver-xorg-video-vesa
 xserver-xorg-video-fbdev
 xserver-xorg-input-all
+xserver-xorg-input-libinput
 mesa-utils
 
 # XFCE

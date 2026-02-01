@@ -78,17 +78,24 @@ mkdir -p config/bootloaders/isolinux
 cp /usr/share/live/build/bootloaders/isolinux/*.cfg \
    /usr/share/live/build/bootloaders/isolinux/*.in \
    config/bootloaders/isolinux/ 2>/dev/null || true
-# Symlänkar med korrekta Bookworm-sökvägar (tolkas i chroot)
-ln -sf /usr/lib/ISOLINUX/isolinux.bin config/bootloaders/isolinux/isolinux.bin
-ln -sf /usr/lib/syslinux/modules/bios/vesamenu.c32 config/bootloaders/isolinux/vesamenu.c32
-ln -sf /usr/lib/syslinux/modules/bios/ldlinux.c32 config/bootloaders/isolinux/ldlinux.c32
-ln -sf /usr/lib/syslinux/modules/bios/libcom32.c32 config/bootloaders/isolinux/libcom32.c32
-ln -sf /usr/lib/syslinux/modules/bios/libutil.c32 config/bootloaders/isolinux/libutil.c32
+# isolinux.bin och .c32-moduler kopieras från chroot i steg 3/4
+# (symlänkar fungerar inte om syslinux-common saknas på värden)
 # Skapa tom bootlogo (cpio-arkiv) — live-build 3.x:s lb_binary_syslinux rad 365
 # försöker ovillkorligt läsa binary/isolinux/bootlogo för gfxboot-repacking.
 # I Debian-mode skapas aldrig denna fil (bara i Ubuntu-mode). Utan den kraschar
 # scriptet med "cannot open binary/isolinux/bootlogo: No such file".
 (cd config/bootloaders/isolinux && echo -n | cpio --quiet -o > bootlogo)
+
+# ─── Installationsmeny i syslinux ────────────────────────────────────
+# install.cfg är bara "# FIXME" i live-build 3.x. Skapar ett riktigt
+# menyalternativ som bootar live + skickar kernel-parameter "func-install"
+# som fångas av ett autostart-skript som startar Calamares.
+cat > config/bootloaders/isolinux/install.cfg << 'INSTCFG'
+label install
+	menu label ^Install Func Linux
+	kernel /live/vmlinuz
+	append initrd=/live/initrd.img boot=live components hostname=func username=func func-install
+INSTCFG
 
 # ─── Manuell security-repo (live-build 3.x använder fel suite-namn) ───
 mkdir -p config/archives
@@ -150,6 +157,52 @@ if [ -f "$PROJECT_DIR/branding/issue" ]; then
     cp "$PROJECT_DIR/branding/issue" config/includes.chroot/etc/issue
 fi
 
+# ─── Calamares autostart vid "Install" boot-val ──────────────────────
+# Om kernel-parametern "func-install" finns, starta Calamares automatiskt
+# efter att live-sessionen laddat klart.
+mkdir -p config/includes.chroot/usr/local/bin
+cat > config/includes.chroot/usr/local/bin/func-install-check << 'FINSTEOF'
+#!/bin/bash
+# Kontrollera om "func-install" skickades som kernel-parameter
+if grep -q "func-install" /proc/cmdline; then
+    # Starta LightDM/XFCE om det inte redan kör
+    if ! pgrep -x lightdm >/dev/null; then
+        systemctl start lightdm
+    fi
+    # Vänta på att X är redo
+    while [ ! -f /tmp/.X0-lock ]; do
+        sleep 2
+    done
+    sleep 3
+    export DISPLAY=:0
+    export XAUTHORITY=/var/run/lightdm/root/:0
+    # Starta Calamares
+    calamares &
+fi
+FINSTEOF
+chmod +x config/includes.chroot/usr/local/bin/func-install-check
+
+# Systemd-service som körs vid boot och startar Calamares om func-install angavs
+mkdir -p config/includes.chroot/etc/systemd/system
+cat > config/includes.chroot/etc/systemd/system/func-install.service << 'FSVCEOF'
+[Unit]
+Description=Func Linux Installer (Calamares)
+After=multi-user.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/func-install-check
+RemainAfterExit=no
+
+[Install]
+WantedBy=multi-user.target
+FSVCEOF
+
+# Aktivera servicen — den kollar /proc/cmdline och gör inget om func-install saknas
+mkdir -p config/includes.chroot/etc/systemd/system/multi-user.target.wants
+ln -sf /etc/systemd/system/func-install.service \
+    config/includes.chroot/etc/systemd/system/multi-user.target.wants/func-install.service
+
 # ─── Hooks (post-install skript) ─────────────────────
 log "Skapar hooks..."
 mkdir -p config/hooks/normal
@@ -178,14 +231,52 @@ chmod +x config/hooks/normal/0100-func-setup.hook.chroot
 # Lösning: kör bootstrap+chroot separat, kopiera kernel manuellt, kör binary.
 log "Bygger ISO... (detta tar en stund)"
 
-log "Steg 1/3: bootstrap + chroot..."
+log "Steg 1/4: bootstrap + chroot..."
 lb bootstrap 2>&1 | tee "$BUILD_DIR/build.log"
 lb chroot 2>&1 | tee -a "$BUILD_DIR/build.log"
 
-log "Steg 2/3: kopierar kernel och initrd till binary/live/..."
+# ─── Reinstallera Calamares i chroot ─────────────────────────────────
+# live-build 3.x tar bort Calamares under lb_chroot (paket-rensning)
+# innan squashfs skapas. Installerar om det direkt i chroot så att
+# binären och alla beroenden finns med i den färdiga live-sessionen.
+log "Steg 2/4: reinstallerar borttagna paket i chroot..."
+# lb chroot avmonterar resolv.conf — återställ DNS för manuella apt-anrop
+cp /etc/resolv.conf chroot/etc/resolv.conf
+
+chroot chroot apt-get update
+chroot chroot apt-get install -y --no-install-recommends calamares calamares-settings-debian
+
+# Säkerställ att live-config-systemd finns (skapar live-config.service)
+# och bygg om initrd så att live-boot/live-config-hooks inkluderas.
+chroot chroot apt-get install -y --no-install-recommends live-config live-config-systemd
+
+# Lägg till saknade tangentbordsmoduler i initrd (i8042 + atkbd krävs
+# för PS/2-tangentbord, vilket Dell laptops och de flesta desktops använder)
+echo "i8042" >> chroot/etc/initramfs-tools/modules
+echo "atkbd" >> chroot/etc/initramfs-tools/modules
+chroot chroot update-initramfs -u
+
+# Rensa DNS — ska inte finnas med i den färdiga live-sessionen
+rm -f chroot/etc/resolv.conf
+
+log "Steg 3/4: kopierar kernel, initrd och syslinux-moduler..."
 mkdir -p binary/live
 cp chroot/boot/vmlinuz-* binary/live/
 cp chroot/boot/initrd.img-* binary/live/
+
+# ─── Kopiera syslinux .c32-moduler från chroot ──────────────────────
+# Symlänkar i config/bootloaders/isolinux/ fungerar inte om syslinux-common
+# saknas på värd-systemet. Kopierar riktiga filer direkt från chroot.
+# Placeras i BÅDE config/bootloaders/isolinux/ (för lb_binary_syslinux)
+# OCH config/includes.binary/isolinux/ (fallback — kopieras till binary/
+# som sista steg i lb binary, efter syslinux-steget).
+log "Kopierar syslinux-moduler från chroot..."
+mkdir -p config/includes.binary/isolinux
+for mod in ldlinux.c32 libcom32.c32 libutil.c32 vesamenu.c32; do
+    cp "chroot/usr/lib/syslinux/modules/bios/$mod" "config/bootloaders/isolinux/$mod"
+    cp "chroot/usr/lib/syslinux/modules/bios/$mod" "config/includes.binary/isolinux/$mod"
+done
+cp chroot/usr/lib/ISOLINUX/isolinux.bin config/bootloaders/isolinux/isolinux.bin
 
 # ─── Fix rsvg: live-build 3.x anropar "rsvg" som inte finns i Bookworm ───
 # librsvg2-bin i Bookworm levererar "rsvg-convert" istället för "rsvg",
@@ -213,7 +304,7 @@ exec rsvg-convert "${args[@]}" -o "${positional[1]}" "${positional[0]}"
 RSVGEOF
 chmod +x chroot/usr/bin/rsvg
 
-log "Steg 3/3: binary (bootloader + ISO)..."
+log "Steg 4/4: binary (bootloader + ISO)..."
 lb binary 2>&1 | tee -a "$BUILD_DIR/build.log"
 
 # Flytta ISO -- live-build 3.x kan skapa filen i chroot/ vid stegvis bygge

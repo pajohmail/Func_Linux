@@ -1,5 +1,170 @@
 # Func Linux -- ISO Build Log
 
+## 2026-02-01: Lägg till installationsalternativ i bootmenyn (Calamares)
+
+**Problem:** Bootmenyn visar bara "Live" — inget sätt att installera
+Func Linux till disk. `install.cfg` i bootloader-templaten innehöll
+bara `# FIXME`.
+
+**Orsak:** live-build 3.x skapar ingen `install.cfg` för Calamares-baserade
+installationer. Calamares är en grafisk installer som körs inifrån en
+live-session, inte ett separat boot-alternativ som `debian-installer`.
+
+**Åtgärd:**
+
+1. Skapade en riktig `install.cfg` i bootloader-templaten med ett
+   "Install Func Linux"-menyalternativ. Bootar samma live-kernel med
+   extra kernel-parameter `func-install`.
+
+2. Skapade `/usr/local/bin/func-install-check` — ett skript som vid boot
+   kollar `/proc/cmdline` efter `func-install`. Om den hittas startas
+   LightDM/XFCE och sedan Calamares automatiskt.
+
+3. Skapade en systemd-service (`func-install.service`) som körs vid
+   `multi-user.target` och anropar install-check-skriptet.
+
+```diff
+ # config/bootloaders/isolinux/install.cfg (ny fil, ersätter "# FIXME")
++ label install
++ 	menu label ^Install Func Linux
++ 	kernel /live/vmlinuz
++ 	append initrd=/live/initrd.img boot=live components hostname=func username=func func-install
+```
+
+```diff
+ # Nya filer i config/includes.chroot/:
++ /usr/local/bin/func-install-check        -- startar LightDM + Calamares
++ /etc/systemd/system/func-install.service  -- systemd oneshot vid boot
+```
+
+## 2026-02-01: Fix tangentbord fungerar inte i live-session (Dell + USB)
+
+**Problem:** Vid boot till live-session (CLI) fungerar varken det interna
+Dell-tangentbordet eller externt USB-tangentbord. Musen fungerar inte heller.
+Skärmen visar terminal men ingen input registreras.
+
+**Orsak:** Kernelmodulerna `i8042` (PS/2-kontroller) och `atkbd`
+(AT-tangentbordsdrivrutin) saknades i initrd. Dessa krävs för PS/2-baserade
+tangentbord som Dells interna tangentbord använder. Modulerna fanns i
+squashfs men laddades aldrig vid boot eftersom de inte inkluderades i
+initramfs. Utan `i8042` initieras inte heller USB HID korrekt på vissa
+system eftersom kernel inte probar input-subsystemet fullständigt.
+
+**Åtgärd:**
+
+Lade till `i8042` och `atkbd` i `/etc/initramfs-tools/modules` i chroot
+innan `update-initramfs -u` körs (steg 2/4 i `build-iso.sh`).
+
+```diff
+ # scripts/build-iso.sh (steg 2/4)
+  chroot chroot apt-get install -y --no-install-recommends live-config live-config-systemd
++ echo "i8042" >> chroot/etc/initramfs-tools/modules
++ echo "atkbd" >> chroot/etc/initramfs-tools/modules
+  chroot chroot update-initramfs -u
+```
+
+## 2026-01-31: Fix `Failed to load ldlinux.c32` — symlänkar resolvas mot värden
+
+**Problem:** ISO bootar inte, syslinux visar `Failed to load ldlinux.c32`.
+Trots att symlänkar för `ldlinux.c32`, `libcom32.c32` och `libutil.c32`
+lades till i bootloader-templaten (se 2026-01-31-posten nedan) saknas
+filerna fortfarande på den färdiga ISO:n.
+
+**Orsak:** Symlänkarna i `config/bootloaders/isolinux/` pekar på
+`/usr/lib/syslinux/modules/bios/*.c32` — sökvägar som resolvas mot
+**värd-systemet**, inte chroot. `syslinux-common` var inte installerat
+på värden, så `cp -aL` (som live-build kör internt) misslyckades tyst
+och filerna kopierades aldrig till ISO:n.
+
+**Åtgärd:**
+
+1. Tog bort symlänkarna för `.c32`-modulerna från template-sektionen.
+2. Kopierar istället de riktiga filerna direkt från chroot efter
+   `lb chroot`-steget (steg 3/4), precis som kernel och initrd.
+
+```diff
+ # scripts/build-iso.sh (template-sektion, efter lb config)
+- ln -sf /usr/lib/syslinux/modules/bios/vesamenu.c32 config/bootloaders/isolinux/vesamenu.c32
+- ln -sf /usr/lib/syslinux/modules/bios/ldlinux.c32 config/bootloaders/isolinux/ldlinux.c32
+- ln -sf /usr/lib/syslinux/modules/bios/libcom32.c32 config/bootloaders/isolinux/libcom32.c32
+- ln -sf /usr/lib/syslinux/modules/bios/libutil.c32 config/bootloaders/isolinux/libutil.c32
++ # Symlänkar ersätts med riktiga filer från chroot i steg 3/4
++ ln -sf /usr/lib/syslinux/modules/bios/vesamenu.c32 config/bootloaders/isolinux/vesamenu.c32
+```
+
+```diff
+ # scripts/build-iso.sh (steg 3/4, efter lb chroot)
++ # Kopiera syslinux-moduler direkt från chroot (inte symlänkar)
++ for mod in ldlinux.c32 libcom32.c32 libutil.c32 vesamenu.c32; do
++     cp "chroot/usr/lib/syslinux/modules/bios/$mod" "config/bootloaders/isolinux/$mod"
++ done
++ cp chroot/usr/lib/ISOLINUX/isolinux.bin config/bootloaders/isolinux/isolinux.bin
+```
+
+## 2026-01-31: Fix DNS i chroot — `Temporary failure resolving 'deb.debian.org'`
+
+**Problem:** Steg 2/4 (reinstallation av Calamares och live-config-systemd
+i chroot) misslyckas med `Temporary failure resolving 'deb.debian.org'`.
+
+**Orsak:** `lb chroot` monterar `/etc/resolv.conf` i chroot under sitt
+steg men avmonterar den när steget avslutas. De manuella `chroot chroot
+apt-get`-anropen i steg 2/4 körs efter det, utan DNS-konfiguration.
+
+**Åtgärd:**
+
+Kopierar värdens `/etc/resolv.conf` till chroot före apt-anropen och
+tar bort den efteråt (ska inte finnas i den färdiga live-sessionen).
+
+```diff
+ # scripts/build-iso.sh (steg 2/4)
++ cp /etc/resolv.conf chroot/etc/resolv.conf
+  chroot chroot apt-get update
+  chroot chroot apt-get install -y --no-install-recommends calamares ...
++ rm -f chroot/etc/resolv.conf
+```
+
+## 2026-01-31: Fix kernel panic vid live-boot + Calamares saknas i live-session
+
+**Problem:** Vid boot av ISO laddas vmlinuz och initrd, sedan kernel panic
+(PC-högtalaren tjuter och systemet hänger). Dessutom saknas Calamares
+(grafisk installer) i den färdiga live-sessionen.
+
+**Orsak:**
+
+1. **Kernel panic:** `live-config-systemd` saknades i squashfs. Utan det
+   skapas ingen `live-config.service`, live-config-scriptsen körs aldrig
+   vid boot, ingen användare skapas, och systemet stannar. Paketet drogs
+   in som beroende av `live-config` men togs bort av live-build 3.x:s
+   paket-rensning under `lb_chroot`.
+
+2. **Calamares borttaget:** live-build 3.x tar bort Calamares (och
+   beroenden) under `lb_chroot`-stegets paket-rensning, innan squashfs
+   skapas. Binären hamnar aldrig i den färdiga live-sessionen.
+
+**Åtgärd:**
+
+1. Lade till `live-config` och `live-config-systemd` i `packages/core.list`.
+2. I `build-iso.sh`, efter `lb chroot` (steg 2/4), reinstalleras
+   Calamares, live-config och live-config-systemd i chroot.
+   Därefter körs `update-initramfs -u` så att initrd innehåller
+   live-boot/live-config-hooks.
+
+```diff
+ # packages/core.list
+  live-boot
++ live-config
++ live-config-systemd
+  systemd
+```
+
+```diff
+ # scripts/build-iso.sh (steg 2/4, efter lb chroot)
+  chroot chroot apt-get update
+  chroot chroot apt-get install -y --no-install-recommends calamares calamares-settings-debian
++ chroot chroot apt-get install -y --no-install-recommends live-config live-config-systemd
++ chroot chroot update-initramfs -u
+```
+
 ## 2026-01-30: Fix gzip "unexpected end of file" vid kernel-steg
 
 **Problem:** `lb_chroot_linux-image` försöker hämta
